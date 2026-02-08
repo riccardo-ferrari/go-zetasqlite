@@ -1217,17 +1217,19 @@ func TRANSLATE(expr, source, target Value) (Value, error) {
 		if err != nil {
 			return nil, err
 		}
-		evaluatedByte := map[byte]struct{}{}
-		for i := 0; i < len(s); i++ {
-			if _, exists := evaluatedByte[s[i]]; exists {
-				return nil, fmt.Errorf("TRANSLATE: found duplicated source character: %c", s[i])
+		sourceRunes := []rune(s)
+		targetRunes := []rune(t)
+		evaluatedRune := map[rune]struct{}{}
+		for i, sourceRune := range sourceRunes {
+			if _, exists := evaluatedRune[sourceRune]; exists {
+				return nil, fmt.Errorf("TRANSLATE: found duplicated source character: %c", sourceRune)
 			}
-			if len(t) > i {
-				e = strings.ReplaceAll(e, string(s[i]), string(t[i]))
+			if len(targetRunes) > i {
+				e = strings.ReplaceAll(e, string(sourceRune), string(targetRunes[i]))
 			} else {
-				e = strings.ReplaceAll(e, string(s[i]), "")
+				e = strings.ReplaceAll(e, string(sourceRune), "")
 			}
-			evaluatedByte[s[i]] = struct{}{}
+			evaluatedRune[sourceRune] = struct{}{}
 		}
 		return StringValue(e), nil
 	case BytesValue:

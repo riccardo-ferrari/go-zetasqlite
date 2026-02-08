@@ -4897,6 +4897,26 @@ WITH example AS (
 			},
 		},
 		{
+			name: "translate unicode source and target",
+			query: `
+SELECT
+  TRANSLATE(
+    'ØøÐðĐđŁłıŊŋ',
+    CHR(216)||CHR(248)||CHR(208)||CHR(240)||CHR(272)||CHR(273)||CHR(321)||CHR(322)||CHR(305)||CHR(330)||CHR(331),
+    'OoDdDdLliNn'
+  ) AS got,
+  'OoDdDdLliNn' AS expected,
+  TRANSLATE(
+    'ØøÐðĐđŁłıŊŋ',
+    CHR(216)||CHR(248)||CHR(208)||CHR(240)||CHR(272)||CHR(273)||CHR(321)||CHR(322)||CHR(305)||CHR(330)||CHR(331),
+    'OoDdDdLliNn'
+  ) = 'OoDdDdLliNn' AS pass
+`,
+			expectedRows: [][]interface{}{
+				{"OoDdDdLliNn", "OoDdDdLliNn", true},
+			},
+		},
+		{
 			name:         "trim",
 			query:        `SELECT TRIM('   apple   '), TRIM('		apple	'), TRIM('***apple***', '*'), TRIM(NULL), TRIM('abc', NULL)`,
 			expectedRows: [][]interface{}{{"apple", "apple", "apple", nil, nil}},
