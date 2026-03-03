@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/base64"
 	"fmt"
@@ -16,6 +17,12 @@ func DecodeValue(v driver.Value) (Value, error) {
 		return nil, nil
 	}
 	switch vv := v.(type) {
+	case json.Number:
+		if i, err := vv.Int64(); err == nil {
+			return IntValue(i), nil
+		}
+		f, _ := vv.Float64()
+		return FloatValue(f), nil
 	case int64:
 		return IntValue(vv), nil
 	case float64:
@@ -32,7 +39,10 @@ func DecodeValue(v driver.Value) (Value, error) {
 		return nil, fmt.Errorf("failed to decode value: %w", err)
 	}
 	var layout ValueLayout
-	if err := json.Unmarshal(decoded, &layout); err != nil {
+
+	dec := json.NewDecoder(bytes.NewReader(decoded))
+	dec.UseNumber()
+	if err := dec.Decode(&layout); err != nil {
 		return nil, fmt.Errorf("failed to get value layout: %w", err)
 	}
 	return decodeFromValueLayout(&layout)
@@ -89,7 +99,9 @@ func decodeFromValueLayout(layout *ValueLayout) (Value, error) {
 		return JsonValue(layout.Body), nil
 	case ArrayValueType:
 		var arr []interface{}
-		if err := json.Unmarshal([]byte(layout.Body), &arr); err != nil {
+		dec := json.NewDecoder(bytes.NewReader([]byte(layout.Body)))
+		dec.UseNumber()
+		if err := dec.Decode(&arr); err != nil {
 			return nil, fmt.Errorf("failed to decode array body: %w", err)
 		}
 		ret := &ArrayValue{
@@ -105,7 +117,9 @@ func decodeFromValueLayout(layout *ValueLayout) (Value, error) {
 		return ret, nil
 	case StructValueType:
 		var structLayout StructValueLayout
-		if err := json.Unmarshal([]byte(layout.Body), &structLayout); err != nil {
+		dec := json.NewDecoder(bytes.NewReader([]byte(layout.Body)))
+		dec.UseNumber()
+		if err := dec.Decode(&structLayout); err != nil {
 			return nil, err
 		}
 		m := map[string]Value{}
