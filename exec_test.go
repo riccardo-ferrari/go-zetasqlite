@@ -486,6 +486,45 @@ WITH numbers AS
 			t.Errorf("(-want +got):\n%s", diff)
 		}
 	})
+	t.Run("operation", func(t *testing.T) {
+		if _, err := db.ExecContext(
+			ctx,
+			`
+CREATE FUNCTION nullFunction()
+RETURNS STRING
+LANGUAGE js
+AS r"""
+  return null;
+"""`,
+		); err != nil {
+			t.Fatal(err)
+		}
+		rows, err := db.QueryContext(ctx, `SELECT nullFunction() IS NULL, nullFunction() IS NOT NULL`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+
+		results := [][]bool{}
+		for rows.Next() {
+			var (
+				x, y bool
+			)
+
+			if err := rows.Scan(&x, &y); err != nil {
+				t.Fatal(err)
+			}
+			results = append(results, []bool{x, y})
+		}
+		if rows.Err() != nil {
+			t.Fatal(rows.Err())
+		}
+		if diff := cmp.Diff(results, [][]bool{
+			{true, false},
+		}); diff != "" {
+			t.Errorf("(-want +got):\n%s", diff)
+		}
+	})
 	t.Run("function", func(t *testing.T) {
 		if _, err := db.ExecContext(
 			ctx,

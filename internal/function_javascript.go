@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/dop251/goja"
@@ -45,6 +46,13 @@ zetasqlite_javascript_func();
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert zetasqlite value from %v: %w", ret, err)
 	}
+
+	valueToString, _ := value.ToString()
+
+	if strings.ToLower(valueToString) == "null" {
+		return ValueFromGoValue(nil)
+	}
+
 	return value, nil
 }
 
