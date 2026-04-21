@@ -489,11 +489,26 @@ func CastValue(t types.Type, v Value) (Value, error) {
 			if key == "" {
 				key = fmt.Sprintf("_field_%d", i+1)
 			}
-			var value Value
-			if i < len(s.values) {
-				value = s.values[i]
-			} else {
-				value = s.m[key]
+			value, exists := s.m[key]
+			if !exists {
+				// Case-insensitive lookup
+				for k, v := range s.m {
+					if strings.EqualFold(k, key) {
+						value = v
+						exists = true
+						break
+					}
+				}
+			}
+			if !exists {
+				// Fallback to positional mapping only if the source struct is unnamed (or has no keys)
+				isUnnamed := true
+				if len(s.keys) > i && s.keys[i] != "" && !strings.HasPrefix(s.keys[i], "_field_") {
+					isUnnamed = false
+				}
+				if isUnnamed && i < len(s.values) {
+					value = s.values[i]
+				}
 			}
 			if value == nil {
 				ret.keys = append(ret.keys, key)
@@ -502,14 +517,12 @@ func CastValue(t types.Type, v Value) (Value, error) {
 			}
 			casted, err := CastValue(typ.Field(i).Type(), value)
 			if err != nil {
-				slog.Error("CastValue: STRUCT failed recursive CastValue", slog.String("component", "zetasqlite"), slog.String("field", key), slog.Any("error", err))
 				return nil, err
 			}
 			ret.keys = append(ret.keys, key)
 			ret.values = append(ret.values, casted)
 			ret.m[key] = casted
 		}
-		slog.Debug("CastValue: STRUCT success", slog.String("component", "zetasqlite"))
 		return ret, nil
 	case types.NUMERIC:
 		r, err := v.ToRat()

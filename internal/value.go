@@ -2088,20 +2088,9 @@ func (t TimestampValue) ToApiString() (string, error) {
 		return "", err
 	}
 	unixmicro := ti.UnixMicro()
-	sec := unixmicro / 1000000
-	nsec := unixmicro % 1000000
-	if nsec < 0 {
-		if nsec != 0 {
-			sec -= 1
-			nsec += 1000000
-		}
-	}
-	if nsec == 0 {
-		return fmt.Sprintf("%d.0", sec), nil
-	}
-	str := fmt.Sprintf("%d.%06d", sec, nsec)
-	str = strings.TrimRight(str, "0")
-	return str, nil
+	sec := unixmicro / int64(time.Millisecond)
+	nsec := unixmicro - sec*int64(time.Millisecond)
+	return fmt.Sprintf("%d.%d", sec, nsec), nil
 }
 
 func (t TimestampValue) ToBytes() ([]byte, error) {
@@ -2113,11 +2102,7 @@ func (t TimestampValue) ToBytes() ([]byte, error) {
 }
 
 func (t TimestampValue) ToFloat64() (float64, error) {
-	ti, err := t.ToTime()
-	if err != nil {
-		return 0, err
-	}
-	return float64(ti.UnixMicro()) / 1e6, nil
+	return float64(time.Time(t).Unix()), nil
 }
 
 func (t TimestampValue) ToBool() (bool, error) {
@@ -2145,7 +2130,7 @@ func (t TimestampValue) ToRat() (*big.Rat, error) {
 }
 
 func (d TimestampValue) Format(verb rune) string {
-	const timestampPrintableFormat = "2006-01-02 15:04:05.999999"
+	const timestampPrintableFormat = "2006-01-02 15:04:05"
 	formatted := time.Time(d).UTC().Format(timestampPrintableFormat) + "+00"
 	switch verb {
 	case 't':
@@ -2157,8 +2142,7 @@ func (d TimestampValue) Format(verb rune) string {
 }
 
 func (d TimestampValue) Interface() interface{} {
-	apiStr, _ := d.ToApiString()
-	return apiStr
+	return time.Time(d).Format(time.RFC3339)
 }
 
 type IntervalValue struct {
