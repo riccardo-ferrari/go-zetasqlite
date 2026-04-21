@@ -19,7 +19,7 @@ func DecodeValue(v driver.Value) (Value, error) {
 		if i, err := vv.Int64(); err == nil {
 			return IntValue(i), nil
 		}
-		f, _ := vv.Float64()
+		f, _ := vv.Float64();
 		return FloatValue(f), nil
 	case int64:
 		return IntValue(vv), nil
@@ -27,6 +27,8 @@ func DecodeValue(v driver.Value) (Value, error) {
 		return FloatValue(vv), nil
 	case bool:
 		return BoolValue(vv), nil
+	case []byte:
+		return DecodeValue(string(vv))
 	}
 	s, ok := v.(string)
 	if !ok {
@@ -34,14 +36,20 @@ func DecodeValue(v driver.Value) (Value, error) {
 	}
 	decoded, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode value: %w", err)
+		// Not a base64 string, treat as a plain string
+		return StringValue(s), nil
 	}
 	var layout ValueLayout
 
 	dec := json.NewDecoder(bytes.NewReader(decoded))
 	dec.UseNumber()
 	if err := dec.Decode(&layout); err != nil {
-		return nil, fmt.Errorf("failed to get value layout: %w", err)
+		// Not a JSON ValueLayout, treat as a plain string
+		return StringValue(s), nil
+	}
+	// Basic validation to check if it's really a ValueLayout
+	if layout.Header == "" {
+		return StringValue(s), nil
 	}
 	return decodeFromValueLayout(&layout)
 }
