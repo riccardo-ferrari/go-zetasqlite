@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math/big"
-	"strconv"
-	"time"
 
 	"github.com/goccy/go-json"
 )
@@ -85,14 +83,15 @@ func decodeFromValueLayout(layout *ValueLayout) (Value, error) {
 		}
 		return TimeValue(t), nil
 	case TimestampValueType:
-		microsec, err := strconv.ParseInt(layout.Body, 10, 64)
-		microSecondsInSecond := int64(time.Second) / int64(time.Microsecond)
-		sec := microsec / microSecondsInSecond
-		remainder := microsec - (sec * microSecondsInSecond)
+		loc, err := toLocation("")
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse unixmicro for timestamp value %s: %w", layout.Body, err)
+			return nil, err
 		}
-		return TimestampValue(time.Unix(sec, remainder*int64(time.Microsecond))), nil
+		t, err := parseTimestamp(layout.Body, loc)
+		if err != nil {
+			return nil, err
+		}
+		return TimestampValue(t), nil
 	case IntervalValueType:
 		return parseInterval(layout.Body)
 	case JsonValueType:

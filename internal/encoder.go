@@ -675,9 +675,13 @@ func valueLayoutFromValue(v Value) (*ValueLayout, error) {
 			Body:   body,
 		}, nil
 	case TimestampValue:
+		body, err := vv.ToApiString()
+		if err != nil {
+			return nil, err
+		}
 		return &ValueLayout{
 			Header: TimestampValueType,
-			Body:   fmt.Sprint(time.Time(vv).UnixMicro()),
+			Body:   body,
 		}, nil
 	case *IntervalValue:
 		s, err := vv.ToString()
