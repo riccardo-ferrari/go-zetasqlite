@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -54,15 +55,20 @@ func EncodeGoValues(v []interface{}, params []*ast.ParameterNode) ([]interface{}
 }
 
 func EncodeGoValue(t types.Type, v interface{}) (interface{}, error) {
+	log.Printf("[zetasqlite] EncodeGoValue: entering with type=%v, value=%v", t, v)
 	value, err := ValueFromGoValue(v)
 	if err != nil {
+		log.Printf("[zetasqlite] EncodeGoValue: ValueFromGoValue failed: %v", err)
 		return nil, err
 	}
 	casted, err := CastValue(t, value)
 	if err != nil {
+		log.Printf("[zetasqlite] EncodeGoValue: CastValue failed: %v", err)
 		return nil, err
 	}
-	return EncodeValue(casted)
+	res, err := EncodeValue(casted)
+	log.Printf("[zetasqlite] EncodeGoValue: leaving with res=%v, err=%v", res, err)
+	return res, err
 }
 
 func EncodeValue(v Value) (interface{}, error) {
@@ -81,10 +87,12 @@ func EncodeValue(v Value) (interface{}, error) {
 	}
 	layout, err := valueLayoutFromValue(v)
 	if err != nil {
+		log.Printf("[zetasqlite] EncodeValue: valueLayoutFromValue failed: %v", err)
 		return nil, err
 	}
 	b, err := json.Marshal(layout)
 	if err != nil {
+		log.Printf("[zetasqlite] EncodeValue: json.Marshal failed: %v", err)
 		return nil, fmt.Errorf("failed to encode value: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(b), nil
@@ -452,11 +460,13 @@ func CastValue(t types.Type, v Value) (Value, error) {
 		}
 		return ret, nil
 	case types.STRUCT:
+		log.Printf("[zetasqlite] CastValue: casting to STRUCT type %v, from value %v", t.Kind(), v)
 		if array, ok := v.(*ArrayValue); ok {
 			ret := &StructValue{m: map[string]Value{}}
 			for _, value := range array.values {
 				st, err := value.ToStruct()
 				if err != nil {
+					log.Printf("[zetasqlite] CastValue STRUCT from array failed ToStruct: %v", err)
 					return nil, err
 				}
 				ret.keys = append(ret.keys, st.keys...)
@@ -469,29 +479,37 @@ func CastValue(t types.Type, v Value) (Value, error) {
 		}
 		s, err := v.ToStruct()
 		if err != nil {
+			log.Printf("[zetasqlite] CastValue STRUCT failed ToStruct: %v", err)
 			return nil, err
 		}
 		typ := t.AsStruct()
-		ret := &StructValue{m: s.m}
+		ret := &StructValue{m: map[string]Value{}}
 		for i := 0; i < typ.NumFields(); i++ {
 			key := typ.Field(i).Name()
 			if key == "" {
 				key = fmt.Sprintf("_field_%d", i+1)
 			}
-			value, exists := s.m[key]
-			if !exists {
+			var value Value
+			if i < len(s.values) {
+				value = s.values[i]
+			} else {
+				value = s.m[key]
+			}
+			if value == nil {
 				ret.keys = append(ret.keys, key)
 				ret.values = append(ret.values, nil)
 				continue
 			}
 			casted, err := CastValue(typ.Field(i).Type(), value)
 			if err != nil {
+				log.Printf("[zetasqlite] CastValue STRUCT failed recursive CastValue for field %s: %v", key, err)
 				return nil, err
 			}
 			ret.keys = append(ret.keys, key)
 			ret.values = append(ret.values, casted)
 			ret.m[key] = casted
 		}
+		log.Printf("[zetasqlite] CastValue STRUCT success")
 		return ret, nil
 	case types.NUMERIC:
 		r, err := v.ToRat()

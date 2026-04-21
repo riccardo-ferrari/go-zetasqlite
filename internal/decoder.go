@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"math/big"
 
 	"github.com/goccy/go-json"
@@ -32,6 +33,7 @@ func DecodeValue(v driver.Value) (Value, error) {
 	}
 	s, ok := v.(string)
 	if !ok {
+		log.Printf("[zetasqlite] DecodeValue: unexpected value type %T", v)
 		return nil, fmt.Errorf("unexpected value type: %T", v)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(s)
@@ -51,7 +53,11 @@ func DecodeValue(v driver.Value) (Value, error) {
 	if layout.Header == "" {
 		return StringValue(s), nil
 	}
-	return decodeFromValueLayout(&layout)
+	val, err := decodeFromValueLayout(&layout)
+	if err != nil {
+		log.Printf("[zetasqlite] DecodeValue failed to decode from layout %s: %v", layout.Header, err)
+	}
+	return val, err
 }
 
 func decodeFromValueLayout(layout *ValueLayout) (Value, error) {
