@@ -1488,18 +1488,14 @@ func (sv *StructValue) Format(verb rune) string {
 }
 
 func (sv *StructValue) Interface() interface{} {
-	fields := []map[string]interface{}{}
+	fields := map[string]interface{}{}
 	for i := 0; i < len(sv.keys); i++ {
 		key := sv.keys[i]
 		value := sv.values[i]
 		if value == nil {
-			fields = append(fields, map[string]interface{}{
-				key: nil,
-			})
+			fields[key] = nil
 		} else {
-			fields = append(fields, map[string]interface{}{
-				key: value.Interface(),
-			})
+			fields[key] = value.Interface()
 		}
 	}
 	return fields
