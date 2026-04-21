@@ -5,7 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -55,19 +55,19 @@ func EncodeGoValues(v []interface{}, params []*ast.ParameterNode) ([]interface{}
 }
 
 func EncodeGoValue(t types.Type, v interface{}) (interface{}, error) {
-	log.Printf("[zetasqlite] EncodeGoValue: entering with type=%v, value=%v", t, v)
+	slog.Debug("EncodeGoValue: entering", slog.String("component", "zetasqlite"), slog.Any("type", t), slog.Any("value", v))
 	value, err := ValueFromGoValue(v)
 	if err != nil {
-		log.Printf("[zetasqlite] EncodeGoValue: ValueFromGoValue failed: %v", err)
+		slog.Error("EncodeGoValue: ValueFromGoValue failed", slog.String("component", "zetasqlite"), slog.Any("error", err))
 		return nil, err
 	}
 	casted, err := CastValue(t, value)
 	if err != nil {
-		log.Printf("[zetasqlite] EncodeGoValue: CastValue failed: %v", err)
+		slog.Error("EncodeGoValue: CastValue failed", slog.String("component", "zetasqlite"), slog.Any("error", err))
 		return nil, err
 	}
 	res, err := EncodeValue(casted)
-	log.Printf("[zetasqlite] EncodeGoValue: leaving with res=%v, err=%v", res, err)
+	slog.Debug("EncodeGoValue: leaving", slog.String("component", "zetasqlite"), slog.Any("res", res), slog.Any("error", err))
 	return res, err
 }
 
@@ -87,12 +87,12 @@ func EncodeValue(v Value) (interface{}, error) {
 	}
 	layout, err := valueLayoutFromValue(v)
 	if err != nil {
-		log.Printf("[zetasqlite] EncodeValue: valueLayoutFromValue failed: %v", err)
+		slog.Error("EncodeValue: valueLayoutFromValue failed", slog.String("component", "zetasqlite"), slog.Any("error", err))
 		return nil, err
 	}
 	b, err := json.Marshal(layout)
 	if err != nil {
-		log.Printf("[zetasqlite] EncodeValue: json.Marshal failed: %v", err)
+		slog.Error("EncodeValue: json.Marshal failed", slog.String("component", "zetasqlite"), slog.Any("error", err))
 		return nil, fmt.Errorf("failed to encode value: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(b), nil
@@ -460,13 +460,13 @@ func CastValue(t types.Type, v Value) (Value, error) {
 		}
 		return ret, nil
 	case types.STRUCT:
-		log.Printf("[zetasqlite] CastValue: casting to STRUCT type %v, from value %v", t.Kind(), v)
+		slog.Debug("CastValue: casting to STRUCT", slog.String("component", "zetasqlite"), slog.Any("type", t.Kind()), slog.Any("value", v))
 		if array, ok := v.(*ArrayValue); ok {
 			ret := &StructValue{m: map[string]Value{}}
 			for _, value := range array.values {
 				st, err := value.ToStruct()
 				if err != nil {
-					log.Printf("[zetasqlite] CastValue STRUCT from array failed ToStruct: %v", err)
+					slog.Error("CastValue: STRUCT from array failed ToStruct", slog.String("component", "zetasqlite"), slog.Any("error", err))
 					return nil, err
 				}
 				ret.keys = append(ret.keys, st.keys...)
@@ -479,7 +479,7 @@ func CastValue(t types.Type, v Value) (Value, error) {
 		}
 		s, err := v.ToStruct()
 		if err != nil {
-			log.Printf("[zetasqlite] CastValue STRUCT failed ToStruct: %v", err)
+			slog.Error("CastValue: STRUCT failed ToStruct", slog.String("component", "zetasqlite"), slog.Any("error", err))
 			return nil, err
 		}
 		typ := t.AsStruct()
@@ -502,14 +502,14 @@ func CastValue(t types.Type, v Value) (Value, error) {
 			}
 			casted, err := CastValue(typ.Field(i).Type(), value)
 			if err != nil {
-				log.Printf("[zetasqlite] CastValue STRUCT failed recursive CastValue for field %s: %v", key, err)
+				slog.Error("CastValue: STRUCT failed recursive CastValue", slog.String("component", "zetasqlite"), slog.String("field", key), slog.Any("error", err))
 				return nil, err
 			}
 			ret.keys = append(ret.keys, key)
 			ret.values = append(ret.values, casted)
 			ret.m[key] = casted
 		}
-		log.Printf("[zetasqlite] CastValue STRUCT success")
+		slog.Debug("CastValue: STRUCT success", slog.String("component", "zetasqlite"))
 		return ret, nil
 	case types.NUMERIC:
 		r, err := v.ToRat()
@@ -693,13 +693,9 @@ func valueLayoutFromValue(v Value) (*ValueLayout, error) {
 			Body:   body,
 		}, nil
 	case TimestampValue:
-		body, err := vv.ToApiString()
-		if err != nil {
-			return nil, err
-		}
 		return &ValueLayout{
 			Header: TimestampValueType,
-			Body:   body,
+			Body:   fmt.Sprint(time.Time(vv).UnixMicro()),
 		}, nil
 	case *IntervalValue:
 		s, err := vv.ToString()

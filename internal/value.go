@@ -163,12 +163,7 @@ func (iv IntValue) ToJSON() (string, error) {
 
 func (iv IntValue) ToTime() (time.Time, error) {
 	v := int64(iv)
-	// Current year 2026:
-	//   Days since epoch: ~20,500
-	//   Seconds since epoch: ~1,770,000,000
-	// BigQuery max DATE is 9999-12-31 (~3,000,000 days).
-	// So 100,000,000 is a safe threshold to distinguish between days and seconds.
-	if v > 100000000 {
+	if v > time.Unix(0, 0).Unix()*int64(time.Millisecond) {
 		return TimestampFromInt64Value(v)
 	}
 	return DateFromInt64Value(v)
@@ -1493,14 +1488,18 @@ func (sv *StructValue) Format(verb rune) string {
 }
 
 func (sv *StructValue) Interface() interface{} {
-	fields := map[string]interface{}{}
+	fields := []map[string]interface{}{}
 	for i := 0; i < len(sv.keys); i++ {
 		key := sv.keys[i]
 		value := sv.values[i]
 		if value == nil {
-			fields[key] = nil
+			fields = append(fields, map[string]interface{}{
+				key: nil,
+			})
 		} else {
-			fields[key] = value.Interface()
+			fields = append(fields, map[string]interface{}{
+				key: value.Interface(),
+			})
 		}
 	}
 	return fields
@@ -2084,7 +2083,25 @@ func (t TimestampValue) ToString() (string, error) {
 }
 
 func (t TimestampValue) ToApiString() (string, error) {
-	return fmt.Sprintf("%d", time.Time(t).Unix()), nil
+	ti, err := t.ToTime()
+	if err != nil {
+		return "", err
+	}
+	unixmicro := ti.UnixMicro()
+	sec := unixmicro / 1000000
+	nsec := unixmicro % 1000000
+	if nsec < 0 {
+		if nsec != 0 {
+			sec -= 1
+			nsec += 1000000
+		}
+	}
+	if nsec == 0 {
+		return fmt.Sprintf("%d.0", sec), nil
+	}
+	str := fmt.Sprintf("%d.%06d", sec, nsec)
+	str = strings.TrimRight(str, "0")
+	return str, nil
 }
 
 func (t TimestampValue) ToBytes() ([]byte, error) {
@@ -2096,7 +2113,11 @@ func (t TimestampValue) ToBytes() ([]byte, error) {
 }
 
 func (t TimestampValue) ToFloat64() (float64, error) {
-	return float64(time.Time(t).Unix()), nil
+	ti, err := t.ToTime()
+	if err != nil {
+		return 0, err
+	}
+	return float64(ti.UnixMicro()) / 1e6, nil
 }
 
 func (t TimestampValue) ToBool() (bool, error) {
@@ -2124,7 +2145,7 @@ func (t TimestampValue) ToRat() (*big.Rat, error) {
 }
 
 func (d TimestampValue) Format(verb rune) string {
-	const timestampPrintableFormat = "2006-01-02 15:04:05"
+	const timestampPrintableFormat = "2006-01-02 15:04:05.999999"
 	formatted := time.Time(d).UTC().Format(timestampPrintableFormat) + "+00"
 	switch verb {
 	case 't':
@@ -2136,7 +2157,8 @@ func (d TimestampValue) Format(verb rune) string {
 }
 
 func (d TimestampValue) Interface() interface{} {
-	return fmt.Sprintf("%d", time.Time(d).Unix())
+	apiStr, _ := d.ToApiString()
+	return apiStr
 }
 
 type IntervalValue struct {
@@ -2424,7 +2446,7 @@ func (v *SafeValue) Interface() interface{} {
 
 var (
 	dateRe     = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
-	datetimeRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[T\s][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?$`)
+	datetimeRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[T\s][0-9]{2}:[0-9]{2}:[0-9]{2}$`)
 	timeRe     = regexp.MustCompile(`^[0-9]{2}:[0-9]{2}:[0-9]{2}`)
 )
 
@@ -2441,24 +2463,6 @@ func isTime(time string) bool {
 }
 
 func isTimestamp(timestamp string) bool {
-	// If it's a numeric string, we treat it as a timestamp if it has a decimal point
-	// or if it's long enough to be a unix timestamp in seconds (at least 8 digits).
-	isNumeric := true
-	hasDot := false
-	for _, r := range timestamp {
-		if r == '.' {
-			hasDot = true
-			continue
-		}
-		if r < '0' || r > '9' {
-			isNumeric = false
-			break
-		}
-	}
-	if isNumeric {
-		return hasDot || len(timestamp) >= 8
-	}
-
 	loc, err := toLocation("")
 	if err != nil {
 		return false
@@ -2483,7 +2487,7 @@ func parseDatetime(datetime string) (time.Time, error) {
 	if t, err := time.Parse("2006-01-02T15:04:05", datetime); err == nil {
 		return t, nil
 	}
-	return time.Parse("2006-01-02 15:04:05", datetime)
+	return time.Parse("2006-01-02 15:04:05.999999", datetime)
 }
 
 func parseTime(t string) (time.Time, error) {
@@ -2491,31 +2495,6 @@ func parseTime(t string) (time.Time, error) {
 }
 
 func parseTimestamp(timestamp string, loc *time.Location) (time.Time, error) {
-	if i, err := strconv.ParseInt(timestamp, 10, 64); err == nil {
-		if len(timestamp) >= 8 {
-			return time.Unix(i, 0).In(loc), nil
-		}
-	}
-	if strings.Contains(timestamp, ".") {
-		if i, err := strconv.ParseInt(timestamp, 10, 64); err == nil {
-			return time.Unix(i, 0).In(loc), nil
-		}
-		parts := strings.Split(timestamp, ".")
-		if len(parts) == 2 {
-			if seconds, err := strconv.ParseInt(parts[0], 10, 64); err == nil {
-				microsString := parts[1]
-				for len(microsString) < 6 {
-					microsString += "0"
-				}
-				if len(microsString) > 6 {
-					microsString = microsString[:6]
-				}
-				if micros, err := strconv.ParseInt(microsString, 10, 64); err == nil {
-					return time.Unix(seconds, micros*int64(time.Microsecond)).In(loc), nil
-				}
-			}
-		}
-	}
 	if t, err := time.ParseInLocation("2006-01-02T15:04:05.999999999Z07:00", timestamp, loc); err == nil {
 		return t, nil
 	}
@@ -2526,9 +2505,6 @@ func parseTimestamp(timestamp string, loc *time.Location) (time.Time, error) {
 		return t, nil
 	}
 	if t, err := time.ParseInLocation("2006-01-02T15:04:05.999999999 MST", timestamp, loc); err == nil {
-		return t, nil
-	}
-	if t, err := time.ParseInLocation("2006-01-02T15:04:05.999999999", timestamp, loc); err == nil {
 		return t, nil
 	}
 	if t, err := time.ParseInLocation("2006-01-02T15:04:05", timestamp, loc); err == nil {
@@ -2546,6 +2522,9 @@ func parseTimestamp(timestamp string, loc *time.Location) (time.Time, error) {
 	if t, err := time.ParseInLocation("2006-01-02 15:04:05.999999999 MST", timestamp, loc); err == nil {
 		return t, nil
 	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04:05.999999999", timestamp, loc); err == nil {
+		return t, nil
+	}
 	if t, err := time.ParseInLocation("2006-01-02 15:04:05.999999999", timestamp, loc); err == nil {
 		return t, nil
 	}
@@ -2558,9 +2537,8 @@ func parseTimestamp(timestamp string, loc *time.Location) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("failed to parse timestamp. unexpected format %s", timestamp)
 }
 
-
 func DateFromInt64Value(v int64) (time.Time, error) {
-	return time.Unix(0, 0).UTC().Add(time.Duration(v) * 24 * time.Hour), nil
+	return time.Unix(0, 0).Add(time.Duration(v) * 24 * time.Hour), nil
 }
 
 func TimestampFromFloatValue(f float64) (time.Time, error) {
@@ -2570,7 +2548,9 @@ func TimestampFromFloatValue(f float64) (time.Time, error) {
 }
 
 func TimestampFromInt64Value(v int64) (time.Time, error) {
-	return time.Unix(v, 0).UTC(), nil
+	sec := v / int64(time.Millisecond)
+	msec := v - sec*int64(time.Millisecond)
+	return time.Unix(sec, msec*int64(time.Millisecond)).UTC(), nil
 }
 
 func parseInterval(v string) (*IntervalValue, error) {

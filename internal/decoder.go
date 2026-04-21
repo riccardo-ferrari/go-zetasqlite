@@ -5,8 +5,10 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/big"
+	"strconv"
+	"time"
 
 	"github.com/goccy/go-json"
 )
@@ -33,7 +35,7 @@ func DecodeValue(v driver.Value) (Value, error) {
 	}
 	s, ok := v.(string)
 	if !ok {
-		log.Printf("[zetasqlite] DecodeValue: unexpected value type %T", v)
+		slog.Error("DecodeValue: unexpected value type", slog.String("component", "zetasqlite"), slog.String("type", fmt.Sprintf("%T", v)))
 		return nil, fmt.Errorf("unexpected value type: %T", v)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(s)
@@ -55,7 +57,7 @@ func DecodeValue(v driver.Value) (Value, error) {
 	}
 	val, err := decodeFromValueLayout(&layout)
 	if err != nil {
-		log.Printf("[zetasqlite] DecodeValue failed to decode from layout %s: %v", layout.Header, err)
+		slog.Error("DecodeValue: failed to decode from layout", slog.String("component", "zetasqlite"), slog.String("header", string(layout.Header)), slog.Any("error", err))
 	}
 	return val, err
 }
@@ -97,15 +99,14 @@ func decodeFromValueLayout(layout *ValueLayout) (Value, error) {
 		}
 		return TimeValue(t), nil
 	case TimestampValueType:
-		loc, err := toLocation("")
+		microsec, err := strconv.ParseInt(layout.Body, 10, 64)
+		microSecondsInSecond := int64(time.Second) / int64(time.Microsecond)
+		sec := microsec / microSecondsInSecond
+		remainder := microsec - (sec * microSecondsInSecond)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to parse unixmicro for timestamp value %s: %w", layout.Body, err)
 		}
-		t, err := parseTimestamp(layout.Body, loc)
-		if err != nil {
-			return nil, err
-		}
-		return TimestampValue(t), nil
+		return TimestampValue(time.Unix(sec, remainder*int64(time.Microsecond))), nil
 	case IntervalValueType:
 		return parseInterval(layout.Body)
 	case JsonValueType:
